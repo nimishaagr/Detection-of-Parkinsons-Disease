@@ -1,0 +1,724 @@
+---
+title: "Detection of Parkinson's Disease using Voice Measurements"
+author: "Nimisha Agrawal"
+date: "06/01/2021"
+abstract: "Parkinson's Disease symptoms begin gradually and worsen with time. Early diagnosis can help control the degenration, but it is often out of reach and initial symptoms are ignored. This project aims to detect Parkinson's Disease using biomedical voice measurements. It starts with an introduction to the basics of Parkinsons's Disease. Then the methodology and tools of analysis have been described. This is followed by a detailed description of the dataset including the process of importing, pre-processing and splitting. Next, some exploratory data analysis has been done to understand the distribution of the parameters. Thereafter, several machine learning alrgorithms are tested and tuned using repeated cross-validation. The results section summarizes the effectiveness of the models using several relevant metrics. The report ends with a future outlook for expanding the project and turning it into an implementable remote diagnostic for Parkinson's Disease."    
+output:
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message=FALSE, 
+                      warning = FALSE,
+                      eval=TRUE)
+```
+
+\newpage
+# Introduction
+Parkinson's Disease is a neurological degenerative disorder. According to Parkinson's foundation^[https://www.parkinson.org/Understanding-Parkinsons/Statistics], there are more than 10 million people around the world living with this disease. The cause is unknown, although there are several environmental and genetic risk factors. It's symptoms include tremors, loss of balance, degraded coordination and stiffness. The condition can't be cured, but medication helps with the symptoms. The condition requires frequent monitoring for controlling the symptoms and adjusting the treatment accordingly. With digital advancement, remote monitoring is making headway. Motor function impairment manifests itself in several forms which allow for remote monitoring. The speed of typing, the way of touching a screen and even voice allow for remote diagnosis and monitoring. 
+This project derives from remote diagnosis of Parkinson's Disease using speech and aims to be a prototype for a more advanced detection system in the future.
+
+\newpage
+# Methodology
+I use R^[R is free and open source. You can download it here: https://cran.r-project.org/] with the RStudio IDE^[RStudio has many useful features apart from the editor. You can download it here: https://rstudio.com/products/rstudio/download/] to perform data wrangling, pre-processing, exploratory analysis and machine learning. This report is generated using [R Markdown with RStudio](https://rmarkdown.rstudio.com/).   
+To implement the project, the following packages are used in addition to base R:  
+```{r install-packages, include=FALSE}
+#INSTALLING MISSING PACKAGES FROM CRAN
+#PACKAGES NEEDED FOR THE REPORT
+if(!require(rmarkdown)) 
+  install.packages("rmarkdown", repos = "http://cran.us.r-project.org")
+if(!require(knitr)) 
+  install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) 
+  install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(tinytex)) 
+  install.packages("tinytex", repos = "http://cran.us.r-project.org")
+#for installing TinyTeX (LaTeX distribution) using the tinytex R package
+tinytex::install_tinytex() 
+
+#PACKAGES NEEEDED FOR THE CODE
+if(!require(tidyverse)) 
+  install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) 
+  install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(randomcoloR)) 
+  install.packages("randomcoloR", repos = "http://cran.us.r-project.org")
+if(!require(GGally)) 
+  install.packages("GGally", repos = "http://cran.us.r-project.org")
+if(!require(ggcorrplot)) 
+  install.packages("ggcorrplot", repos = "http://cran.us.r-project.org")
+if(!require(reshape2)) 
+  install.packages("reshape2", repos = "http://cran.us.r-project.org")
+if(!require(MLmetrics)) 
+  install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
+if(!require(caTools)) 
+  install.packages("caTools", repos = "http://cran.us.r-project.org")
+if(!require(e1071)) 
+  install.packages("e1071", repos = "http://cran.us.r-project.org", dependencies=TRUE)
+if(!require(nnet)) 
+  install.packages("nnet", repos = "http://cran.us.r-project.org")
+if(!require(rpart)) 
+  install.packages("rpart", repos = "http://cran.us.r-project.org")
+if(!require(gbm)) 
+  install.packages("gbm", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) 
+  install.packages("randomForest", repos = "http://cran.us.r-project.org")
+```
+
+```{r loading-packages, results='hide'}
+#LOADING THE REQUIRED PACKAGES
+#PACKAGES FOR THE REPORT:
+library(rmarkdown) #converting R markdown documents into several formats
+library(knitr) #a general-purpose package for dynamic report generation
+library(kableExtra) #nice table generator
+library(tinytex) #for compiling from .Rmd to .pdf
+
+#PACKAGES FOR THE CODE:
+library(tidyverse) #for data processing and analysis
+library(caret) #for machine learning
+library(randomcoloR) #to generate a discrete color palette
+library(GGally) #for the parallel coordinates chart
+library(ggcorrplot) #for plotting the correlation matrix
+library(reshape2) #for melt
+library(MLmetrics) #for computing F1-score
+library(caTools) #for logistic regression
+library(e1071) #for support vector machines
+library(nnet) #for neural network
+library(rpart) #for decision tree
+library(gbm) #for gradient boosting machine
+library(randomForest) #for random forest
+```
+
+\newpage
+# The Dataset
+In this project, [the Parkinsons Data Set from the UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/parkinsons) is used. The dataset was created by Max Little of the University of Oxford, in collaboration with the National Centre for Voice and Speech, Denver, Colorado, who recorded the speech signals.^['Exploiting Nonlinear Recurrence and Fractal Scaling Properties for Voice Disorder Detection', Little MA, McSharry PE, Roberts SJ, Costello DAE, Moroz IM. BioMedical Engineering OnLine 2007, 6:23 (26 June 2007)] The data is composed of about six biomedical voice measurements each from 31 people, 23 of whom have Parkinson's Disease.  
+
+## Importing Data  
+The data was imported as follows:  
+```{r importing-data, results='hide'}
+#IMPORTING DATA INTO R
+url <- 
+"https://archive.ics.uci.edu/ml/machine-learning-databases/parkinsons/parkinsons.data"
+
+#creating a temporary file to download data into
+temp <- tempfile()
+
+#downloading from the url
+download.file(url,temp)
+
+#looking at the first few lines of the file
+read_lines(temp, n_max = 3)
+#separator is comma, file contains header
+
+#reading the file into an R object
+parkinsons <- read_csv(temp)
+
+#unlinking the temporary file
+unlink(temp)
+```
+
+## Pre-Processing  
+The data set was pre-processed(without touching the column containing the outcome) to:  
+
+1. remove the column containing names, since it is of no use in analysis/predictions,  
+2. make Column Names R-friendly by removing problematic characters therein, and  
+3. remove some columns which were highly correlated with others, since these would otherwise cause the problem of multicollinearity i.e. unstable parameter estimates and unnecessary noise in our models.   
+
+```{r pre-processing1, results='hide'}
+#PRE-PROCESSING
+#removing the column containing names since I want to make a general predictor,
+#which can be extended to all 
+parkinsons <- parkinsons %>% select(-name)
+
+#changing the column names since they contain characters that may throw up errors
+colnames(parkinsons) <- make.names(colnames(parkinsons))
+
+#checking zero variance
+nearZeroVar(parkinsons)
+
+#identifying correlated predictors 
+corr <- parkinsons %>% select(-status) %>% cor() %>% round(1)
+#flagging predictors for removal with a cutoff of 0.75
+highlyCorr <- findCorrelation(corr, cutoff=0.75)
+#removing the columns from parkinsons
+parkinsons <- parkinsons %>% 
+  select(-status) %>% 
+  select(-all_of(highlyCorr)) %>% 
+  cbind(status=parkinsons$status)
+```
+
+## Variable Description
+The dataset after pre-processing has 11 variables in all: 10 predictors and 1 outcome.
+
+Column Name | Explanation
+------------- | ------------------------------------------------------
+MDVP.Fo.Hz. | Average vocal fundamental frequency
+MDVP.Fhi.Hz. | Maximum vocal fundamental frequency
+MDVP.Flo.Hz. | Minimum vocal fundamental frequency
+NHR | A measure of ratio of noise to tonal components in the voice
+HNR | Another measure of ratio of noise to tonal components in the voice
+RPDE | A nonlinear dynamical complexity measure
+DFA | Signal fractal scaling exponent
+spread1 | A nonlinear measures of fundamental frequency variation
+spread2 | Another nonlinear measures of fundamental frequency variation
+D2 | Another nonlinear dynamical complexity measure
+status | Health status of the subject (1) - Parkinson's and (0) - Healthy  
+
+## Data Splitting  
+The data set is split into test (*test_set*) and training (*train_set*) sets using the *createDataPartition* function of the *caret* package. The split ratio has been set as 80-20 because the number of observations in our data is small. A smaller test set would make testing futile, causing the model to be overfit for future use. A larger test set would leave us with too few observations to develop effective models on.  
+
+```{r data-splitting, results='hide'}
+#SPITTING THE DATA SET INTO TRAIN AND TEST SET
+set.seed(730, sample.kind = "Rounding")
+test_index <- createDataPartition(parkinsons$status, times=1, p=0.2, list=FALSE)
+test_set <- parkinsons[test_index,]
+train_set <- parkinsons[-test_index,]
+```
+
+\newpage
+# Exploratory Data Analysis
+First, the basic structure of the training data set is studied.
+
+```{r basic-structure}
+str(train_set)
+summary(train_set)
+```
+
+The first 6 rows of the data set are displayed for better understanding:
+```{r head-data}
+head(train_set)
+```
+
+The data is checked for NAs:
+```{r check-NA}
+#checking for NAs
+sum(is.na(train_set))
+```
+
+Following are a series of visualizations to aid understanding of the distribution and features of the data.  
+
+```{r outcome-distribution, echo=FALSE, out.width='75%', fig.align = 'center', fig.cap="Distribution of Outcome. The outcome is imbalanced. This changes how the machine learning models are tuned. Kappa will be used as a metric, instead of accuracy. (More on that in the Machine Learning Section.)"}
+#checking the distribution of the outcome 'status'
+train_set %>% mutate(status=factor(status, labels=c("Healthy","Parkinson's"))) %>% 
+  ggplot(aes(status, fill=status)) +
+  geom_bar() + 
+  scale_fill_manual(values=c("mediumseagreen", "palevioletred")) +
+  theme(legend.position = "none") +
+  labs(x="Outcome (status)", y="Count",
+       title="Distribution of Outcome")
+```
+    
+```{r predictor-distribution, echo=FALSE, out.width='100%', fig.align = 'center', fig.cap="Distributions of Predictors. They all have different scales, so a pre processing will be needed for some machine learning models."}
+#checking the distribution of all predictors
+train_set %>% select(-status) %>% gather() %>%
+  group_by(key) %>% mutate(mean=mean(value)) %>% ungroup() %>%
+  ggplot(aes(value, y=..count.., fill=key))+
+  geom_density() +
+  geom_vline(aes(xintercept=mean)) + 
+  facet_wrap(.~key, scales="free", ncol=4) +
+  scale_fill_manual(values=distinctColorPalette(10)) +
+  theme(legend.position = "none") +
+  labs(x="Predictor", y="Count",
+       title="Distribution of Predictors")
+```
+  
+```{r parallel-coordinates-chart, echo=FALSE, out.width='100%', fig.align = 'center', fig.cap="Parallel Coordinates Chart of Outcomes for all Predictors. A general trend can be seen for the data, along with the outliers."}
+#parallel coordinates chart
+train_set %>% mutate(status=factor(status, labels=c("Healthy","Parkinson's"))) %>%
+  ggparcoord(columns=c(1:10), groupColumn = 11, scale="std", alphaLines=0.4) +
+  scale_color_manual(values=c("mediumseagreen", "palevioletred")) + 
+  geom_line(size=1, alpha=0.3) +
+  theme(axis.text.x = element_text(angle=40, hjust=1))+
+  labs(x="Predictor", y="Standardized Value",
+       title="Parallel Coordinates Chart of Outcomes for all Predictors",
+       col="Outcome\n(status)")
+```
+  
+```{r box-plots, echo=FALSE, fig.dim=c(4,8), fig.align = 'center', fig.cap="Boxplots of Predictors vs. Status. This helps to better see the underlying distribution of the outcome within the variables."}
+#boxplots with jitter
+train_set %>% mutate(status=factor(status, labels=c("Healthy","Parkinson's"))) %>%
+  melt(id.vars="status") %>%
+  ggplot(aes(status, value, fill=status)) + 
+  facet_wrap(.~variable, scales="free", ncol=2) +
+  geom_boxplot() + geom_jitter(color="grey", alpha=0.5) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values=c("mediumseagreen", "palevioletred")) +
+  labs(x="Outcome (status)", y="Value",
+       title="Boxplots of Predictors vs. Status")
+```
+  
+```{r correlation-predictors, echo=FALSE, out.width='100%', fig.align = 'center', fig.cap="Correlation of Predictors with the Outcome. All values are significant (95 per cent C.I.). The ones with the highest correlation on either side of the line will likely be the main factors in the machine learning models that follow."}
+#checking correlation of predictors with the outcome
+train_corr <- round(cor(train_set),1)
+train_p <- cor_pmat(train_set)
+train_corrp <- data.frame(
+  "feature"=colnames(train_set),
+  "r"=train_corr[,11],
+  "p"=train_p[,11],
+  row.names = NULL
+) %>% filter(feature!="status")
+train_corrp %>% mutate(feature=reorder(feature,r)) %>%
+  ggplot(aes(feature, r, shape=(p<0.05), col=fct_rev(as.factor(r)))) + 
+  geom_point(size=5) +
+  geom_hline(yintercept=0, col="black") +
+  ylim(-0.6,0.6) +
+  coord_flip() +
+  scale_color_brewer(palette="RdBu") +
+  guides(shape = FALSE) +
+  labs(y="Pearson Correlation", x="Predictor",
+       title="Correlation of Predictors with the Outcome",
+       col="Pearson\nCorrelation\n(rounded)")
+```
+
+\newpage
+# Machine Learning
+
+Machine learning algorithms essentially improve themselves through experience. They rely on historical data to predict outcomes for new, unseen data. The dataset had been split into *test_set* and *train_set* earlier. There is 1 categorical outcome to be predicted (*status*) with values being either 0 or 1, indicating Healthy and Parkinson's respectively. There are 10 numerical, continuous predictors which will be used in the models that follow.
+
+## Evaluation Metrics
+The metrics that will be used to judge the performance of the algorithms are listed below. For all of these, the positive class has been set to be status=1 i.e. Parkinson's, as is the industry practice.  
+
+### Kappa: 
+This will be the primary performance metric to maximize. It takes precedence over the more commonly accepted accuracy estimate because it factors in the imbalance in the class distribution of the outcome (as observed in a graph earlier).
+$$\kappa=\frac{p_0-p_e}{1-p_e}$$
+$p_0$ is the overall accuracy of the model
+$p_e$ is a measure of the agreement between the model predictions and the actual class values as if happening by chance
+Kappa varies from -1 to 1 with 0 indicating that the prediction is no better than that expected by chance.
+
+### Accuracy:
+It is the ratio of the number of correct predictions to the total number of samples. It is the most popular metric, so it's being taken into consideration despite its lower utility in this specific dataset.
+$$Accuracy=\frac{True\, Positives + True\, Negatives}{All\, Samples}$$
+
+### F1 Score:
+It is a measure of accuracy that balances both sensitivity (recall) and specificity (precision). Both sensitivity and specificity are important metrics in medical diagnosis as false negatives can give false assurances, and false positives can make people get needless, time-consuming and expensive medical tests.
+
+$$F_1={(1+\beta^2)} \cdot {\frac{Precision \cdot Recall}{(\beta^2 \cdot Precision)+Recall}}$$
+$\beta$ represents how much more important recall is compared to precision
+$$Precision=\frac{True\, Positives}{True\, Positives + False\, Positives}$$
+$$Recall=\frac{True\, Positives}{True\, Positives + False\, Negatives}$$
+
+## Methodology
+
+Since there are few observations in the train set, 10-fold cross validation, repeated 10 times is used to train all the models. The numbers 10 have been picked to keep the code execution time in suitable proportion with the number of observations. In addition, since this project is a classification problem, the train set is duplicated into a new set with the outcome (*status*) as a factor variable, instead of the original numeric. This is a requirement for some models, optional for others, but good practice in general.
+
+```{r pre-ML, results='hide'}
+#MACHINE LEARNING
+#creating a copy of the train_set with status as a factor variable
+train_fct <- train_set %>% mutate(status=as.factor(status))
+#setting the standard for 10-fold cross validation will be done with each algorithm
+#because seeds need to be set according to tuning parameters for reproducible values
+```
+
+The models are all implemented using the *caret* package, with a few add-on packages as required for each model type.
+
+\newpage
+# Models
+## Logistic Regression
+Intended for classification problems like this, logistic regression models the probabilities describing the possible outcomes. Sensitive to range, it requires feature scaling, which has been done using the *preProcess* argument of the *train* function. A tuning grid has been defined to test the model with.
+
+```{r logireg, results='hide'}
+#LOGISTIC REGRESSION
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 1)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+train_logireg <- train(status ~ ., method = "LogitBoost", 
+                       data = train_fct,
+                       trControl = control,
+                       metric="Kappa",
+                       preProcess = c("center", "scale"),
+                       tuneGrid = data.frame(nIter = seq(1, 400, 20)))
+
+#storing the predicted values
+predicted_logireg <- predict(train_logireg, test_set)
+
+#computing metrics to assess efficacy of the algorithm
+cm_logireg <- confusionMatrix(predicted_logireg, as.factor(test_set$status), positive="1")
+kappa_logireg <- cm_logireg$overall["Kappa"]
+accu_logireg <- cm_logireg$overall["Accuracy"]
+f1_logireg <- F1_Score(predicted_logireg, as.factor(test_set$status), positive="1")
+```
+
+```{r logireg-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the parameters that were tuned
+ggplot(train_logireg, highlight = TRUE) + labs(title="Tuning the Logistic Regression")
+```
+
+```{r logireg-results}
+train_logireg
+cm_logireg
+```
+
+The model performs well on all metrics of concern.
+
+\newpage
+## K-Nearest Neighbours
+This method computes a classification by taking a simple majority vote of the **k** nearest neighbours of each point. It doesn't consider which features are important. But in a data with a large number of predictors, it can suffer from the curse of dimensionality, wherein "near" doesn't make sense anymore. Nevertheless, it is a simple, robust algorithm. This is also sensitive to range so preProcess has been used. A tuning grid has been defined.
+
+```{r knn, results='hide'}
+#K-NEAREST NEIGHBOURS
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 20)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+train_knn <- train(status ~ ., method = "knn", 
+                   data = train_fct,
+                   trControl = control,
+                   metric="Kappa",
+                   tuneGrid = data.frame(k = seq(1, 20, 1)),
+                   preProcess = c("center", "scale"))
+
+#storing the predicted values
+predicted_knn <- predict(train_knn, test_set)
+
+#computing metrics to assess efficacy of the algorithm
+cm_knn <- confusionMatrix(predicted_knn, as.factor(test_set$status), positive="1")
+kappa_knn <- cm_knn$overall["Kappa"]
+accu_knn <- cm_knn$overall["Accuracy"]
+f1_knn <- F1_Score(predicted_knn, as.factor(test_set$status), positive="1")
+```
+
+```{r knn-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the parameters that were tuned
+ggplot(train_knn, highlight = TRUE) + labs(title="Tuning the K-Nearest Neighbours")
+```
+
+```{r knn-results}
+train_knn
+cm_knn
+```
+This model too performs well in all metrics. It does show some overfitting though.
+
+\newpage
+## Support Vector Machine
+Here, the training data can be thought of as points in space with a clear separation between categories. Any new data is also mapped into this space and category decided on the basis of which side of the separation they fall in. It is considered very effective for data with many predictors/dimensions. This is also sensitive to range, so *preProcess* has been used. A tuning grid has been defined for two parameters.
+
+```{r svm, results='hide'}
+#SUPPORT VECTOR MACHINE
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 15)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+train_svm <- train(status ~ ., method = "svmLinearWeights", 
+                   data = train_fct,
+                   trControl = control,
+                   metric="Kappa",
+                   preProcess = c("center", "scale"),
+                   tuneGrid = expand.grid(cost = c(.25, .5, 1), weight = c(1:5)))
+
+#storing the predicted values
+predicted_svm <- predict(train_svm, test_set)
+
+#computing metrics to assess efficacy of the algorithm
+cm_svm <- confusionMatrix(predicted_svm, as.factor(test_set$status), positive="1")
+kappa_svm <- cm_svm$overall["Kappa"]
+accu_svm <- cm_svm$overall["Accuracy"]
+f1_svm <- F1_Score(predicted_svm, as.factor(test_set$status), positive="1")
+```
+
+```{r svm-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the parameters that were tuned
+ggplot(train_svm, highlight = TRUE) + labs(title="Tuning the Support Vector Machine")
+```
+
+```{r svm-results}
+train_svm
+cm_svm
+```
+
+The model does not overfit and performs well on the metrics of concern.
+
+\newpage
+## Neural Network
+Often called a black-box, it is a set of connected input-output units with each connection having an associated weight. The weights are adjusted during the learning process. Though most effective with large datasets, they work fairly well otherwise too. This requires scaling too. A tune grid has been manually set up.
+
+```{r nn, results='hide'}
+#NEURAL NETWORK
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 40)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+train_nn <- train(status ~ ., method = "nnet", 
+                  data = train_fct,
+                  trControl = control,
+                  metric="Kappa",
+                  preProcess = c("center", "scale"),
+                  tuneGrid=expand.grid(size=c(0.1,0.01,0.001,0.0001), decay=1:10))
+
+#storing the predicted values
+predicted_nn <- predict(train_nn, test_set)
+
+#computing metrics to assess efficacy of the algorithm
+cm_nn <- confusionMatrix(predicted_nn, as.factor(test_set$status), positive="1")
+kappa_nn <- cm_nn$overall["Kappa"]
+accu_nn <- cm_nn$overall["Accuracy"]
+f1_nn <- F1_Score(predicted_nn, as.factor(test_set$status), positive="1")
+```
+
+```{r nn-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the parameters that were tuned
+ggplot(train_nn, highlight = TRUE) + labs(title="Tuning the Neural Network")
+```
+
+```{r nn-results}
+train_nn
+cm_nn
+```
+
+The model performs well on all metrics and does not overfit.
+
+\newpage
+## Decision Tree
+Easy to comprehend, decision trees formulate a sequence or rules to classify the data. Although prone to instability and over-training, they're excellent for human understanding.
+Tree-based models do not require scaling. A tune grid has been set manually.
+
+```{r rpart, results='hide'}
+#DECISION TREE
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 1)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+train_rpart <- train(status ~ ., method = "rpart", 
+                   data = train_fct,
+                   metric="Kappa",
+                   trControl = control,
+                   tuneGrid = data.frame(cp = seq(0, 1, len = 25)))
+
+#storing the predicted values
+predicted_rpart <- predict(train_rpart, test_set)
+
+#computing metrics to assess efficacy of the algorithm
+cm_rpart <- confusionMatrix(predicted_rpart, as.factor(test_set$status), positive="1")
+kappa_rpart <- cm_rpart$overall["Kappa"]
+accu_rpart <- cm_rpart$overall["Accuracy"]
+f1_rpart <- F1_Score(predicted_rpart, as.factor(test_set$status), positive="1")
+```
+
+```{r rpart-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the parameters that were tuned
+ggplot(train_rpart, highlight = TRUE) + labs(title="Tuning the Decision Tree")
+```
+
+```{r rpart-results}
+train_rpart
+cm_rpart
+```
+
+The model performs fairly well in all the metrics and does not overfit.
+
+\newpage
+## Gradient Boosting Machine
+It is essentially a decision tree algorithm but it's uniqueness lies in the fact that each new tree is fitted on modified data and it incrementally assigns higher weights to the cases that were incorrectly predicted in previous models. This keeps improving the metric but also makes it slower. To tune the implementation here, a manual tuning grid has been made to strike a balance between execution time and metric performance.
+
+```{r gbm, results='hide'}
+#GRADIENT BOOSTING MACHINE
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 90)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), 
+                        n.trees = (1:30)*50, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 20)
+train_gbm <- train(status ~ ., method = "gbm", 
+                   data = train_fct,
+                   trControl = control,
+                   metric="Kappa",
+                   tuneGrid=gbmGrid, 
+                   verbose=FALSE)
+
+#storing the predicted values
+predicted_gbm <- predict(train_gbm, test_set) 
+
+#computing metrics to assess efficacy of the algorithm
+cm_gbm <- confusionMatrix(predicted_gbm, as.factor(test_set$status), positive="1")
+kappa_gbm <- cm_gbm$overall["Kappa"]
+accu_gbm <- cm_gbm$overall["Accuracy"]
+f1_gbm <- F1_Score(predicted_gbm, as.factor(test_set$status), positive="1")
+```
+
+```{r gbm-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the parameters that were tuned
+ggplot(train_gbm, highlight = TRUE) + labs(title="Tuning the Gradient Boosting Machine")
+```
+
+```{r gbm-results}
+train_gbm
+cm_gbm
+```
+
+The model has performed extremely well on all metrics without overfitting.
+
+\newpage
+## Random Forest
+Random forest fits multiple decision tress and averages them. This reduces the tendency to overfit but also adds complexity. To balance this trade-off, the model is tuned for two parameters one after another.
+
+```{r rf, results='hide'}
+#RANDOM FOREST
+#setting all the seeds for cross validation to get reproducible numbers
+set.seed(730, sample.kind = "Rounding")
+seeds <- vector(mode = "list", length = 101)
+for(i in 1:100) seeds[[i]] <- sample.int(1000, 10)
+seeds[[101]] <- sample.int(1000, 1)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 10, seeds=seeds)
+
+#training the model
+set.seed(730, sample.kind = "Rounding")
+#tuning for the parameter 'mtry' and storing the best value of 'mtry'
+mtry_rf <- train(status ~ ., method = "rf", 
+      data = train_fct,
+      trControl = control,
+      metric="Kappa",
+      tuneGrid=data.frame(mtry=1:10))$bestTune
+#tuning for nodesize using the best value of 'mtry' computed above
+rf_nodesize <- seq(1, 20, 1)
+kappa_all_rf <- sapply(rf_nodesize, function(ns){
+  set.seed(730, sample.kind = "Rounding")
+  train(status ~ ., method = "rf", 
+        data = train_fct,
+        trControl = control,
+        metric="Kappa",
+        tuneGrid=data.frame(mtry=mtry_rf),
+        nodesize = ns)$results$Kappa
+})
+
+#training the final model using the ebst mtry and the best nodesize
+set.seed(730, sample.kind = "Rounding")
+train_rf <- train(status ~ ., method = "rf", 
+                  data = train_fct,
+                  trControl = control,
+                  metric="Kappa",
+                  tuneGrid=data.frame(mtry=mtry_rf),
+                  modesize=rf_nodesize[which.max(kappa_all_rf)])
+
+#storing the predicted values
+predicted_rf <- predict(train_rf, test_set)
+
+#computing metrics to assess efficacy of the algorithm
+cm_rf <- confusionMatrix(predicted_rf, as.factor(test_set$status), positive="1")
+kappa_rf <- cm_rf$overall["Kappa"]
+accu_rf <- cm_rf$overall["Accuracy"]
+f1_rf <- F1_Score(predicted_rf, as.factor(test_set$status), positive="1")
+```
+
+```{r rf-tuning, echo=FALSE, out.width='75%', fig.align = 'center'}
+#plotting the kappa values against the node sizes
+qplot(rf_nodesize, kappa_all_rf) + 
+  labs(x="Nodesize", y="Kappa", 
+       title="Tuning the Random Forest for 'nodesize'")
+```
+
+```{r rf-results}
+train_rf
+cm_rf
+```
+The model has given a perfect fit. This was possible because the number of observations is small. Nevertheless, it is a tetsimony to it's sexcellent performance.
+
+\newpage
+## Ensemble of all the Previous Models
+
+Ensemble involves combining the result of different models to improve the performance. There are several ways to do this. Here, I've used a simply majority vote of the aforementioned 7 models' predicted values.
+
+```{r esmb, results='hide'}
+#ENSEMBLE (USING OUR TUNED PREDICTIONS)
+pred_all <- data.frame(predicted_logireg, predicted_knn, predicted_svm,
+                       predicted_nn, predicted_rpart, predicted_gbm, predicted_rf)
+
+#getting the predictions based on majority vote
+predicted_esmb <- as.factor(ifelse(rowMeans(pred_all=="0")>0.5, 0, 1))
+
+#computing metrics to assess efficacy of the algorithm
+cm_esmb <- confusionMatrix(predicted_esmb, as.factor(test_set$status), positive="1")
+kappa_esmb <- cm_esmb$overall["Kappa"]
+accu_esmb <- cm_esmb$overall["Accuracy"]
+f1_esmb <- F1_Score(predicted_esmb, as.factor(test_set$status), positive="1")
+```
+
+```{r esmb-results}
+cm_esmb
+```
+
+The ensemble has performed at the higher end of the spectrum of our composite models' performance.
+
+\newpage
+# Results
+
+The results of our models are summarized in the table below.
+
+```{r final-results}
+#making a data frame of all models and metrics
+results <- data.frame(model=c("Logistic Regression", "K Nearest Neighbours",
+                              "Support Vector Machine", "Neural Network",
+                              "Decision Tree", "Gradient Boosting Machine",
+                              "Random Forest", "Ensemble"),
+                      kappa=c(kappa_logireg, kappa_knn, kappa_svm, kappa_nn,
+                              kappa_rpart, kappa_gbm, kappa_rf, kappa_esmb),
+                      accuracy=c(accu_logireg, accu_knn, accu_svm, accu_nn,
+                                 accu_rpart, accu_gbm, accu_rf, accu_esmb),
+                      F1_Score=c(f1_logireg, f1_knn, f1_svm, f1_nn, 
+                                 f1_rpart, f1_gbm, f1_rf, f1_esmb))
+knitr::kable(results)
+```
+
+The following graphs help for a visual comparison.
+
+```{r final-results-graphs, echo=FALSE, out.width='75%', fig.align = 'center'}
+results %>% mutate(model=reorder(model,kappa)) %>%
+  ggplot(aes(model, kappa)) + geom_col(width=0.5, fill="steelblue") + 
+  coord_flip() +
+  labs(x="Kappa", y="Model",
+       title="Models' Performance Summary: Kappa")
+results %>% mutate(model=reorder(model,accuracy)) %>%
+  ggplot(aes(model, accuracy)) + geom_col(width=0.5, fill="goldenrod3") + 
+  coord_flip() +
+  labs(x="Accuracy", y="Model",
+       title="Models' Performance Summary: Accuracy")
+results %>% mutate(model=reorder(model,F1_Score)) %>%
+  ggplot(aes(model, F1_Score)) + geom_col(width=0.5, fill="deeppink4") + 
+  coord_flip() +
+  labs(x="F1 Score", y="Model",
+       title="Models' Performance Summary: F1 Score")
+```
+
+Overall, Random Forest was the best performing model in all concerned metrics and Decision Tree was the worst performer. The best performing model showed: 
+
+* Kappa: `r results$kappa[which(results$model=="Random Forest")]`,
+* Accuracy: `r results$accuracy[which(results$model=="Random Forest")]`, and
+* F1 Score: `r results$F1_Score[which(results$model=="Random Forest")]`.
+
+\newpage
+# Conclusion
+The project, albeit done with a very limited set of observations, shows great promise in future applicability. Prelimnarily diagnosing the presence, and eventually severity, of Parkinson's Disease can be possible with just a mobile application. Though not as effective as the established testing procedures, it can be helpful in remote, inaccessible regions with inadequate healthcare systems.  
+In the future, it is expected to work with larger datasets, more models and more independent predictors to eventually create a stable, robust and reliable diagnostic.
